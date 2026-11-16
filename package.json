@@ -1,0 +1,37 @@
+{
+  "name": "cyberb",
+  "version": "1.0.0",
+  "description": "Moduł 1 – Identyfikacja, uwierzytelnianie i autoryzacja (wariant 1)",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "seed": "tsx src/seed.ts",
+    "seed:reset": "tsx src/seed.ts --reset",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "argon2": "^0.45.1",
+    "better-sqlite3": "^13.0.3",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.3.0",
+    "express-session": "^1.19.0",
+    "otpauth": "^9.5.2",
+    "otplib": "^13.5.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/express-session": "^1.19.0",
+    "@types/node": "^26.6.5",
+    "@types/qrcode": "^1.5.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
