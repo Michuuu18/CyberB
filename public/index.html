@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CyberB</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="login-view" class="login-wrap">
+    <aside class="login-hero">
+      <div>
+        <div class="logo-mark">CB</div>
+        <h1>CyberB</h1>
+        <div class="hero-meta">
+          <div><strong>Wariant</strong><span>1 · min. 15 znaków · zakaz 3+ powtórzeń</span></div>
+          <div><strong>Role</strong><span>Administrator · Redaktor · Czytelnik</span></div>
+          <div><strong>Hash</strong><span>Argon2id · sesja cookie · SQLite</span></div>
+          <div><strong>OTP</strong><span>12 znaków alfanumerycznych · ważne 24 h</span></div>
+        </div>
+      </div>
+      <div class="hero-meta">
+        <div><strong>Autor</strong><span>Aplikację wykonał Michał Pielichowski</span></div>
+      </div>
+    </aside>
+
+    <div class="login-side">
+      <div class="card login-card">
+        <p class="eyebrow" style="margin:0 0 6px;font-family:var(--mono);font-size:0.72rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--steel);">Bezpieczne logowanie</p>
+        <h2 class="form-title">Zaloguj się</h2>
+        <p class="section-lead">Podaj identyfikator i hasło. Błędy nie ujawniają, czy konto istnieje.</p>
+        <form id="login-form">
+          <label for="login">Login</label>
+          <input id="login" name="login" autocomplete="username" required />
+          <label for="password">Hasło</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required />
+          <div class="row" style="margin-top: 18px;">
+            <button class="btn full" type="submit">Zaloguj</button>
+          </div>
+        </form>
+
+        <form id="totp-login-form" class="hidden" style="margin-top: 8px;">
+          <p class="eyebrow" style="margin:0 0 6px;font-family:var(--mono);font-size:0.72rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--steel);">Krok 2 · TOTP</p>
+          <h2 class="form-title">Kod 2FA</h2>
+          <p class="section-lead">Wpisz 6-cyfrowy kod z aplikacji authenticator.</p>
+          <label for="totp-code">Kod TOTP</label>
+          <input id="totp-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" required />
+          <div class="row" style="margin-top: 18px;">
+            <button class="btn full" type="submit">Potwierdź 2FA</button>
+            <button class="btn secondary full" type="button" id="totp-cancel">Anuluj</button>
+          </div>
+        </form>
+
+        <div id="login-msg" class="msg hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="app-view" class="shell hidden">
+    <div class="topbar">
+      <div class="brand-mark">
+        <div class="logo-mark">CB</div>
+        <div class="brand">
+          <p class="eyebrow">Identity &amp; Access</p>
+          <h1>CyberB</h1>
+          <div class="user-chip"><span class="dot"></span><span id="user-info">—</span></div>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn secondary" id="btn-change-pass" type="button">Zmień hasło</button>
+        <button class="btn danger" id="btn-logout" type="button">Wyloguj</button>
+      </div>
+    </div>
+
+    <div id="force-password" class="card hidden panel-enter">
+      <h2>Wymuszona zmiana hasła</h2>
+      <p class="section-lead">Pierwsze logowanie lub reset OTP — ustaw nowe hasło i potwierdź je.</p>
+      <form id="force-password-form">
+        <label>Stare hasło (OTP / startowe)</label>
+        <input type="password" name="oldPassword" required />
+        <label>Nowe hasło</label>
+        <input type="password" name="newPassword" required />
+        <label>Powtórz nowe hasło</label>
+        <input type="password" name="confirmPassword" required />
+        <p class="policy-note">
+          Polityka (wariant 1): minimum 15 znaków; opcjonalnie zakaz 3 lub więcej identycznych znaków z rzędu.
+        </p>
+        <div class="row" style="margin-top: 16px;">
+          <button class="btn" type="submit">Zapisz nowe hasło</button>
+        </div>
+      </form>
+      <div id="force-msg" class="msg hidden"></div>
+    </div>
+
+    <div id="main-app" class="hidden">
+      <div class="tabs" id="tabs"></div>
+
+      <div id="panel-articles" class="card hidden panel-enter">
+        <h2>Artykuły</h2>
+        <p class="section-lead">Dostęp do treści według roli: odczyt / zapis.</p>
+        <div id="article-form-wrap" class="hidden">
+          <h3>Nowy / edycja</h3>
+          <form id="article-form">
+            <input type="hidden" name="id" />
+            <label>Tytuł</label>
+            <input name="title" required />
+            <label>Treść</label>
+            <textarea name="body" required></textarea>
+            <div class="row" style="margin-top: 12px;">
+              <button class="btn" type="submit">Zapisz</button>
+              <button class="btn secondary" type="button" id="article-cancel">Anuluj</button>
+            </div>
+          </form>
+        </div>
+        <div id="articles-list"></div>
+      </div>
+
+      <div id="panel-admin" class="hidden panel-enter">
+        <div class="grid-2">
+          <div class="card">
+            <h2>Użytkownicy</h2>
+            <p class="section-lead">Zarządzanie kontami, rolami, blokadą i hasłami jednorazowymi.</p>
+            <form id="user-form">
+              <h3>Dodaj użytkownika</h3>
+              <label>Login</label>
+              <input name="login" required />
+              <label>Imię</label>
+              <input name="firstName" required />
+              <label>Nazwisko</label>
+              <input name="lastName" required />
+              <label>Rola</label>
+              <select name="roleId" id="role-select" required></select>
+              <div class="row" style="margin-top: 14px;">
+                <button class="btn" type="submit">Utwórz (OTP 12 znaków / 24 h)</button>
+              </div>
+            </form>
+            <div id="admin-msg" class="msg hidden"></div>
+            <div id="users-table" style="margin-top: 18px; overflow-x: auto;"></div>
+          </div>
+
+          <div class="card">
+            <h2>Polityka i sesja</h2>
+            <p class="section-lead">Parametry bezpieczeństwa konta i wygaśnięcia sesji.</p>
+            <form id="settings-form">
+              <label>Minimalna długość hasła</label>
+              <input type="number" name="minPasswordLength" min="8" max="128" />
+              <label class="check-line">
+                <input type="checkbox" name="policyNoTripleRepeat" />
+                <span>Zakaz 3+ identycznych znaków z rzędu </span>
+              </label>
+              <label>Ważność hasła (dni, 0 = bez limitu)</label>
+              <input type="number" name="passwordValidityDays" min="0" max="3650" />
+              <label>Bezczynność sesji (minuty)</label>
+              <input type="number" name="sessionIdleMinutes" min="1" max="1440" />
+              <div class="row" style="margin-top: 14px;">
+                <button class="btn" type="submit">Zapisz ustawienia</button>
+              </div>
+            </form>
+            <div id="settings-msg" class="msg hidden"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="panel-password" class="card hidden panel-enter">
+        <h2>Zmiana hasła</h2>
+        <p class="section-lead">Wymagane stare hasło. Nowe musi spełniać politykę i nie powielać historii.</p>
+        <form id="password-form">
+          <label>Stare hasło</label>
+          <input type="password" name="oldPassword" required />
+          <label>Nowe hasło</label>
+          <input type="password" name="newPassword" required />
+          <label>Powtórz nowe hasło</label>
+          <input type="password" name="confirmPassword" required />
+          <button class="btn" type="submit" style="margin-top: 14px;">Zmień hasło</button>
+        </form>
+        <div id="password-msg" class="msg hidden"></div>
+
+        <hr style="border:none;border-top:1px solid var(--line);margin:24px 0;" />
+
+        <h2>Uwierzytelnianie dwuskładnikowe (TOTP)</h2>
+        <p class="section-lead">
+           po włączeniu 2FA logowanie wymaga hasła oraz kodu z authenticatora
+          (Google Authenticator, Microsoft Authenticator, Authy).
+        </p>
+        <p id="totp-status" class="policy-note">Status 2FA: —</p>
+        <div id="totp-setup-box" class="hidden" style="margin-top:14px;">
+          <p class="section-lead">Zeskanuj QR lub wpisz sekret ręcznie, potem potwierdź kodem.</p>
+          <img id="totp-qr" alt="Kod QR TOTP" style="width:220px;height:220px;border:1px solid var(--line);border-radius:10px;background:#fff;" />
+          <p id="totp-secret" class="msg warn" style="margin-top:12px;"></p>
+          <form id="totp-enable-form">
+            <label>Kod z aplikacji (6 cyfr)</label>
+            <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" required />
+            <button class="btn" type="submit" style="margin-top:12px;">Włącz 2FA</button>
+          </form>
+        </div>
+        <div class="row" style="margin-top:14px;">
+          <button class="btn" type="button" id="btn-totp-setup">Skonfiguruj 2FA</button>
+        </div>
+        <form id="totp-disable-form" class="hidden" style="margin-top:14px;">
+          <h3>Wyłącz 2FA</h3>
+          <label>Hasło konta</label>
+          <input type="password" name="password" autocomplete="current-password" required />
+          <label>Aktualny kod TOTP (6 cyfr z aplikacji)</label>
+          <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" required />
+          <button class="btn danger" type="submit" style="margin-top:12px;">Wyłącz 2FA</button>
+        </form>
+        <div id="totp-msg" class="msg hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
