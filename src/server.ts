@@ -6,11 +6,14 @@ import { touchSession } from "./middleware";
 import { adminRouter } from "./routes/admin";
 import { articlesRouter } from "./routes/articles";
 import { authRouter } from "./routes/auth";
+import { securityPublicRouter } from "./routes/securityPublic";
 
 initSchema();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+
+app.set("trust proxy", 1);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -31,6 +34,7 @@ app.use(
 
 app.use(touchSession);
 
+app.use("/api/security", securityPublicRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/articles", articlesRouter);
@@ -50,6 +54,7 @@ app.use((req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`CyberB (wariant 1) działa na http://localhost:${PORT}`);
+  console.log(`CyberB (Moduł 1+2) działa na http://localhost:${PORT}`);
   console.log("Jeśli baza jest pusta, uruchom: npm run seed");
+  console.log("Canary dokument: http://localhost:" + PORT + "/api/security/canary/aws-credentials.txt");
 });

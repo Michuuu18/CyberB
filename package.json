@@ -1,13 +1,14 @@
 {
   "name": "cyberb",
   "version": "1.0.0",
-  "description": "Moduł 1 – Identyfikacja, uwierzytelnianie i autoryzacja (wariant 1)",
+  "description": "CyberB – Moduł 1 (IAM) + Moduł 2 (boty, CAPTCHA, canary)",
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "seed": "tsx src/seed.ts",
     "seed:reset": "tsx src/seed.ts --reset",
+    "test:bot": "node scripts/bot-test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [],

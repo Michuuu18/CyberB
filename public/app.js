@@ -4,7 +4,90 @@ const state = {
   idleTimer: null,
   canWrite: false,
   canManage: false,
+  captcha: {
+    siteKey: null,
+    loginChallengeId: null,
+    passwordChallengeId: null,
+    forceChallengeId: null,
+    loginWidgetId: null,
+    passwordWidgetId: null,
+    forceWidgetId: null,
+  },
 };
+
+function waitForTurnstile() {
+  return new Promise((resolve) => {
+    if (window.turnstile && window.turnstile.render) {
+      resolve();
+      return;
+    }
+    const t = setInterval(() => {
+      if (window.turnstile && window.turnstile.render) {
+        clearInterval(t);
+        resolve();
+      }
+    }, 100);
+  });
+}
+
+async function loadCaptchaChallenge(kind) {
+  await waitForTurnstile();
+  const cfg = await api("/api/security/captcha-config");
+  state.captcha.siteKey = cfg.siteKey;
+
+  const containerId =
+    kind === "login"
+      ? "login-recaptcha"
+      : kind === "force"
+        ? "force-recaptcha"
+        : "password-recaptcha";
+
+  const el = document.getElementById(containerId);
+  if (!el) return null;
+
+  el.innerHTML = "";
+  const widgetId = window.turnstile.render(el, {
+    sitekey: cfg.siteKey,
+    theme: "light",
+    appearance: "always",
+  });
+
+  if (kind === "login") {
+    state.captcha.loginChallengeId = cfg.challengeId;
+    state.captcha.loginWidgetId = widgetId;
+  } else if (kind === "force") {
+    state.captcha.forceChallengeId = cfg.challengeId;
+    state.captcha.forceWidgetId = widgetId;
+  } else {
+    state.captcha.passwordChallengeId = cfg.challengeId;
+    state.captcha.passwordWidgetId = widgetId;
+  }
+  return cfg.challengeId;
+}
+
+function getCaptchaToken(widgetId) {
+  if (widgetId === null || widgetId === undefined) return "";
+  try {
+    return window.turnstile.getResponse(widgetId) || "";
+  } catch {
+    return "";
+  }
+}
+
+function resetCaptcha(kind) {
+  const widgetId =
+    kind === "login"
+      ? state.captcha.loginWidgetId
+      : kind === "force"
+        ? state.captcha.forceWidgetId
+        : state.captcha.passwordWidgetId;
+  try {
+    if (widgetId !== null && widgetId !== undefined) window.turnstile.reset(widgetId);
+  } catch {
+    
+  }
+  loadCaptchaChallenge(kind);
+}
 
 async function api(url, options = {}) {
   const res = await fetch(url, {
@@ -51,7 +134,7 @@ function resetIdleWatch(minutes) {
     try {
       await api("/api/auth/logout", { method: "POST", body: "{}" });
     } catch {
-      /* ignore */
+    
     }
     alert("Sesja wygasła z powodu bezczynności.");
     location.reload();
@@ -105,8 +188,12 @@ async function switchTab(name) {
     await loadRoles();
     await loadUsers();
     await loadSettings();
+    await loadAlerts();
   }
-  if (name === "password") refreshTotpPanel();
+  if (name === "password") {
+    refreshTotpPanel();
+    await loadCaptchaChallenge("password");
+  }
 }
 
 function refreshTotpPanel() {
@@ -137,6 +224,7 @@ async function enterApp() {
   if (state.me.mustChangePassword) {
     show(document.getElementById("force-password"));
     hide(document.getElementById("main-app"));
+    await loadCaptchaChallenge("force");
   } else {
     hide(document.getElementById("force-password"));
     show(document.getElementById("main-app"));
@@ -157,6 +245,9 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
       body: JSON.stringify({
         login: fd.get("login"),
         password: fd.get("password"),
+        website: fd.get("website") || "",
+        captchaToken: getCaptchaToken(state.captcha.loginWidgetId),
+        captchaChallengeId: state.captcha.loginChallengeId,
       }),
     });
     hide(msg);
@@ -168,9 +259,37 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
     }
     await enterApp();
   } catch (err) {
-    showMsg(msg, err.message, "error");
+    const locked = err.data?.locked;
+    const rem = err.data?.remainingSeconds;
+    if (locked && rem) {
+      showMsg(
+        msg,
+        `${err.message}\nPozostało: ${Math.floor(rem / 60)}:${String(rem % 60).padStart(2, "0")}`,
+        "error"
+      );
+      startLockCountdown(msg, rem, err.message);
+    } else {
+      showMsg(msg, err.message, "error");
+    }
+    resetCaptcha("login");
   }
 });
+
+function startLockCountdown(msgEl, seconds, baseMessage) {
+  let left = seconds;
+  if (state._lockTimer) clearInterval(state._lockTimer);
+  state._lockTimer = setInterval(() => {
+    left -= 1;
+    if (left <= 0) {
+      clearInterval(state._lockTimer);
+      showMsg(msgEl, "Blokada wygasła — możesz spróbować ponownie.", "ok");
+      return;
+    }
+    const mm = Math.floor(left / 60);
+    const ss = String(left % 60).padStart(2, "0");
+    showMsg(msgEl, `${baseMessage}\nPozostało: ${mm}:${ss}`, "error");
+  }, 1000);
+}
 
 document.getElementById("totp-login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -192,7 +311,7 @@ document.getElementById("totp-cancel").addEventListener("click", async () => {
   try {
     await api("/api/auth/logout", { method: "POST", body: "{}" });
   } catch {
-    /* ignore */
+   
   }
   location.reload();
 });
@@ -206,8 +325,14 @@ document.getElementById("btn-change-pass").addEventListener("click", () => {
   if (!state.me?.mustChangePassword) switchTab("password");
 });
 
-async function submitPasswordChange(form, msgEl) {
+async function submitPasswordChange(form, msgEl, captchaKind) {
   const fd = new FormData(form);
+  const widgetId =
+    captchaKind === "force" ? state.captcha.forceWidgetId : state.captcha.passwordWidgetId;
+  const challengeId =
+    captchaKind === "force"
+      ? state.captcha.forceChallengeId
+      : state.captcha.passwordChallengeId;
   try {
     await api("/api/auth/change-password", {
       method: "POST",
@@ -215,26 +340,34 @@ async function submitPasswordChange(form, msgEl) {
         oldPassword: fd.get("oldPassword"),
         newPassword: fd.get("newPassword"),
         confirmPassword: fd.get("confirmPassword"),
+        captchaToken: getCaptchaToken(widgetId),
+        captchaChallengeId: challengeId,
       }),
     });
     showMsg(msgEl, "Hasło zmienione.", "ok");
     form.reset();
+    resetCaptcha(captchaKind);
     return true;
   } catch (err) {
     showMsg(msgEl, err.message, "error");
+    resetCaptcha(captchaKind);
     return false;
   }
 }
 
 document.getElementById("force-password-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const ok = await submitPasswordChange(e.target, document.getElementById("force-msg"));
+  const ok = await submitPasswordChange(
+    e.target,
+    document.getElementById("force-msg"),
+    "force"
+  );
   if (ok) await enterApp();
 });
 
 document.getElementById("password-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  await submitPasswordChange(e.target, document.getElementById("password-msg"));
+  await submitPasswordChange(e.target, document.getElementById("password-msg"), "password");
 });
 
 document.getElementById("btn-totp-setup").addEventListener("click", async () => {
@@ -488,6 +621,32 @@ async function loadSettings() {
   form.policyNoTripleRepeat.checked = s.policyNoTripleRepeat;
   form.passwordValidityDays.value = s.passwordValidityDays;
   form.sessionIdleMinutes.value = s.sessionIdleMinutes;
+  form.maxFailedLogins.value = s.maxFailedLogins;
+  form.maxFailedLoginsPerIp.value = s.maxFailedLoginsPerIp;
+}
+
+async function loadAlerts() {
+  const wrap = document.getElementById("alerts-list");
+  if (!wrap) return;
+  try {
+    const alerts = await api("/api/admin/alerts");
+    if (!alerts.length) {
+      wrap.textContent = "Brak alertów.";
+      return;
+    }
+    wrap.innerHTML = alerts
+      .slice(0, 15)
+      .map(
+        (a) =>
+          `<div style="border-top:1px solid var(--line);padding:8px 0;font-size:0.85rem;">
+            <strong>${escapeHtml(a.type)}</strong> · ${escapeHtml(a.created_at)}<br/>
+            ${escapeHtml(a.message)}
+          </div>`
+      )
+      .join("");
+  } catch (err) {
+    wrap.textContent = err.message;
+  }
 }
 
 document.getElementById("settings-form").addEventListener("submit", async (e) => {
@@ -502,6 +661,8 @@ document.getElementById("settings-form").addEventListener("submit", async (e) =>
         policyNoTripleRepeat: e.target.policyNoTripleRepeat.checked,
         passwordValidityDays: Number(fd.get("passwordValidityDays")),
         sessionIdleMinutes: Number(fd.get("sessionIdleMinutes")),
+        maxFailedLogins: Number(fd.get("maxFailedLogins")),
+        maxFailedLoginsPerIp: Number(fd.get("maxFailedLoginsPerIp")),
       }),
     });
     showMsg(msg, "Ustawienia zapisane.", "ok");
@@ -526,5 +687,10 @@ function escapeHtml(value) {
   } catch {
     show(document.getElementById("login-view"));
     hide(document.getElementById("app-view"));
+    try {
+      await loadCaptchaChallenge("login");
+    } catch (err) {
+      console.error(err);
+    }
   }
 })();

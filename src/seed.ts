@@ -10,7 +10,7 @@ import {
 
 const RESET = process.argv.includes("--reset");
 
-/** Stałe hasła demo — zawsze te same po seedzie. */
+
 const DEMO_ACCOUNTS = [
   {
     login: "ADMIN",
@@ -92,8 +92,11 @@ async function seed(): Promise<void> {
       DELETE FROM password_history;
       DELETE FROM articles;
       DELETE FROM users;
+      DELETE FROM captcha_challenges;
+      DELETE FROM ip_login_attempts;
+      DELETE FROM security_alerts;
       DELETE FROM sqlite_sequence
-        WHERE name IN ('users', 'articles', 'password_history');
+        WHERE name IN ('users', 'articles', 'password_history', 'security_alerts');
     `);
     console.log("Tryb --reset: usunięto użytkowników/artykuły i zresetowano ID od 1.");
   }
@@ -146,6 +149,8 @@ async function seed(): Promise<void> {
   setSetting("policy_no_triple_repeat", "1");
   setSetting("password_validity_days", "90");
   setSetting("session_idle_minutes", "10");
+  setSetting("max_failed_logins", "5");
+  setSetting("max_failed_logins_per_ip", "20");
 
   const userCount = db.prepare("SELECT COUNT(*) AS c FROM users").get() as { c: number };
   if (userCount.c > 0) {
@@ -161,8 +166,8 @@ async function seed(): Promise<void> {
   const insertUser = db.prepare(`
     INSERT INTO users (
       login, first_name, last_name, password_hash, role_id,
-      is_blocked, must_change_password, password_changed_at, otp_expires_at
-    ) VALUES (?, ?, ?, ?, ?, 0, 1, NULL, ?)
+      is_blocked, must_change_password, password_changed_at, otp_expires_at, is_honeytoken
+    ) VALUES (?, ?, ?, ?, ?, 0, 1, NULL, ?, ?)
   `);
 
   const accountLines: string[] = [];
@@ -177,13 +182,33 @@ async function seed(): Promise<void> {
       u.last,
       hash,
       roleId(u.role),
-      otpExpiresAt(24)
+      otpExpiresAt(24),
+      0
     );
     const id = Number(result.lastInsertRowid);
     savePasswordHistory(id, hash);
     if (u.login === "ADMIN") adminId = id;
 
     const line = `${u.login} / ${u.password}  (${u.note})`;
+    console.log(line);
+    accountLines.push(line);
+  }
+
+  {
+    const canaryPass = "CanaryTrap99xx";
+    const hash = await hashPassword(canaryPass);
+    const result = insertUser.run(
+      "canary_backup",
+      "Honeytoken",
+      "Canary",
+      hash,
+      roleId("Administrator"),
+      otpExpiresAt(24 * 365),
+      1
+    );
+    savePasswordHistory(Number(result.lastInsertRowid), hash);
+    const line =
+      "canary_backup / CanaryTrap99xx  (KONTO-PUŁAPKA – każde użycie = alert; nie używać w normalnej pracy)";
     console.log(line);
     accountLines.push(line);
   }
@@ -200,6 +225,7 @@ async function seed(): Promise<void> {
   writeAccountsFile(accountLines);
   console.log("\nSeed zakończony. Baza: data/app.sqlite");
   console.log("Hasła startowe są ważne 24 h od TERAZ (moment seeda).");
+  console.log("Canary dokument: GET /api/security/canary/aws-credentials.txt");
 }
 
 seed().catch((err) => {

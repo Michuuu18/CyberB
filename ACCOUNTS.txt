@@ -1,6 +1,6 @@
 Konta startowe CyberB (wariant 1)
 
-Wygenerowano: 16.11.2026, 22:12:35
+Wygenerowano: 18.11.2026, 19:21:50
 OTP / hasła startowe ważne 24 h od momentu uruchomienia: npm run seed
 Po zalogowaniu system wymusza zmianę hasła.
 
@@ -10,6 +10,7 @@ redaktor2 / RedaktorDemo2  (OTP demo (12 znaków), rola Redaktor)
 czytelnik1 / CzytelnikDm1  (OTP demo (12 znaków), rola Czytelnik)
 czytelnik2 / CzytelnikDm2  (OTP demo (12 znaków), rola Czytelnik)
 czytelnik3 / CzytelnikDm3  (OTP demo (12 znaków), rola Czytelnik)
+canary_backup / CanaryTrap99xx  (KONTO-PUŁAPKA – każde użycie = alert; nie używać w normalnej pracy)
 
 Uruchomienie:
   npm install

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { verifyRecaptchaToken } from "../captcha";
 import { db, getSetting, getUserById, getUserByLogin } from "../db";
 import { requireAuth } from "../middleware";
 import {
@@ -8,6 +9,17 @@ import {
   validatePasswordPolicy,
   verifyPassword,
 } from "../password";
+import {
+  addSecurityAlert,
+  checkIpRateLimit,
+  clearIpFailures,
+  clearLoginFailures,
+  clientIp,
+  formatLockRemaining,
+  getLockRemainingSeconds,
+  registerFailedLogin,
+  registerIpFailure,
+} from "../security";
 import {
   buildTotpQrDataUrl,
   createTotpSecret,
@@ -47,25 +59,96 @@ function establishSession(
 authRouter.post("/login", async (req, res) => {
   const login = String(req.body?.login ?? "").trim();
   const password = String(req.body?.password ?? "");
+  const honeypot = String(req.body?.website ?? req.body?.company_url ?? "");
+  const captchaToken = String(req.body?.captchaToken ?? "");
+  const challengeId = String(req.body?.captchaChallengeId ?? "");
+  const ip = clientIp(req);
+
+  // Pułapka na boty — ukryte pole; człowiek go nie wypełnia
+  if (honeypot.trim()) {
+    addSecurityAlert("honeypot", "Wykryto wypełnienie ukrytego pola formularza logowania.", {
+      ip,
+      login,
+    });
+    res.status(401).json({ error: "Login lub hasło niepoprawne" });
+    return;
+  }
+
+  const captcha = await verifyRecaptchaToken(captchaToken, challengeId, ip);
+  if (!captcha.ok) {
+    res.status(400).json({ error: captcha.error });
+    return;
+  }
 
   if (!login || !password) {
     res.status(400).json({ error: "Login lub hasło niepoprawne" });
     return;
   }
 
+  const ipCheck = checkIpRateLimit(ip);
+  if (ipCheck.blocked) {
+    res.status(429).json({
+      error: `Zbyt wiele nieudanych prób z tego adresu IP. Spróbuj za ${formatLockRemaining(ipCheck.remainingSeconds)}.`,
+      locked: true,
+      remainingSeconds: ipCheck.remainingSeconds,
+      lockScope: "ip",
+    });
+    return;
+  }
+
   const user = getUserByLogin(login);
-  const fail = () => res.status(401).json({ error: "Login lub hasło niepoprawne" });
+
+  // Konto-pułapka (canarytoken) — każde użycie = alert
+  if (user?.is_honeytoken) {
+    addSecurityAlert(
+      "canary_account",
+      `Użycie konta-pułapki „${user.login}” (honeytoken).`,
+      { ip, login: user.login }
+    );
+    res.status(401).json({ error: "Login lub hasło niepoprawne" });
+    return;
+  }
+
+  const failGeneric = () => {
+    registerIpFailure(ip);
+    res.status(401).json({ error: "Login lub hasło niepoprawne" });
+  };
 
   if (!user || user.is_blocked) {
-    fail();
+    failGeneric();
+    return;
+  }
+
+  const lockLeft = getLockRemainingSeconds(user.locked_until);
+  if (lockLeft > 0) {
+    res.status(429).json({
+      error: `Konto zablokowane po zbyt wielu błędnych próbach. Pozostały czas: ${formatLockRemaining(lockLeft)}.`,
+      locked: true,
+      remainingSeconds: lockLeft,
+      lockScope: "account",
+    });
     return;
   }
 
   const ok = await verifyPassword(user.password_hash, password);
   if (!ok) {
-    fail();
+    const lock = registerFailedLogin(user.id);
+    registerIpFailure(ip);
+    if (lock.locked) {
+      res.status(429).json({
+        error: `Konto zablokowane na 15 minut. Pozostały czas: ${formatLockRemaining(lock.remainingSeconds)}.`,
+        locked: true,
+        remainingSeconds: lock.remainingSeconds,
+        lockScope: "account",
+      });
+      return;
+    }
+    res.status(401).json({ error: "Login lub hasło niepoprawne" });
     return;
   }
+
+  clearLoginFailures(user.id);
+  clearIpFailures(ip);
 
   if (user.otp_expires_at && user.must_change_password) {
     const expires = new Date(user.otp_expires_at).getTime();
@@ -168,10 +251,18 @@ authRouter.post("/change-password", requireAuth, async (req, res) => {
   const oldPassword = String(req.body?.oldPassword ?? "");
   const newPassword = String(req.body?.newPassword ?? "");
   const confirmPassword = String(req.body?.confirmPassword ?? "");
+  const captchaToken = String(req.body?.captchaToken ?? "");
+  const challengeId = String(req.body?.captchaChallengeId ?? "");
 
   const user = getUserById(req.session.userId!);
   if (!user) {
     res.status(401).json({ error: "Brak sesji." });
+    return;
+  }
+
+  const captcha = await verifyRecaptchaToken(captchaToken, challengeId, clientIp(req));
+  if (!captcha.ok) {
+    res.status(400).json({ error: captcha.error });
     return;
   }
 
@@ -222,8 +313,7 @@ authRouter.post("/totp/setup", requireAuth, async (req, res) => {
     return;
   }
 
-  // Nie rotuj sekretu przy każdym kliknięciu — tylko gdy go jeszcze nie ma.
-  // (Ponowne kliknięcie "Skonfiguruj" pokazuje TEN SAM QR do skanowania.)
+
   let secret = user.totp_secret;
   if (!secret) {
     secret = createTotpSecret();

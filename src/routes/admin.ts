@@ -42,6 +42,9 @@ adminRouter.get("/settings", (_req, res) => {
     policyNoTripleRepeat: getSetting("policy_no_triple_repeat", "1") === "1",
     passwordValidityDays: Number(getSetting("password_validity_days", "90")),
     sessionIdleMinutes: Number(getSetting("session_idle_minutes", "10")),
+    maxFailedLogins: Number(getSetting("max_failed_logins", "5")),
+    maxFailedLoginsPerIp: Number(getSetting("max_failed_logins_per_ip", "20")),
+    lockMinutes: 15,
   });
 });
 
@@ -51,6 +54,8 @@ adminRouter.put("/settings", (req, res) => {
     policyNoTripleRepeat,
     passwordValidityDays,
     sessionIdleMinutes,
+    maxFailedLogins,
+    maxFailedLoginsPerIp,
   } = req.body ?? {};
 
   if (minPasswordLength !== undefined) {
@@ -84,7 +89,37 @@ adminRouter.put("/settings", (req, res) => {
     setSetting("session_idle_minutes", String(n));
   }
 
+  if (maxFailedLogins !== undefined) {
+    const n = Number(maxFailedLogins);
+    if (!Number.isFinite(n) || n < 1 || n > 50) {
+      res.status(400).json({ error: "Nieprawidłowy limit błędnych logowań." });
+      return;
+    }
+    setSetting("max_failed_logins", String(n));
+  }
+
+  if (maxFailedLoginsPerIp !== undefined) {
+    const n = Number(maxFailedLoginsPerIp);
+    if (!Number.isFinite(n) || n < 1 || n > 200) {
+      res.status(400).json({ error: "Nieprawidłowy limit prób z IP." });
+      return;
+    }
+    setSetting("max_failed_logins_per_ip", String(n));
+  }
+
   res.json({ ok: true });
+});
+
+adminRouter.get("/alerts", (_req, res) => {
+  const alerts = db
+    .prepare(
+      `SELECT id, type, message, meta_json, created_at
+       FROM security_alerts
+       ORDER BY id DESC
+       LIMIT 100`
+    )
+    .all();
+  res.json(alerts);
 });
 
 adminRouter.post("/users", async (req, res) => {

@@ -57,6 +57,16 @@ body {
 
 .hidden { display: none !important; }
 
+/* Honeypot — niewidoczne dla człowieka, boty często wypełniają */
+.hp-field {
+  position: absolute;
+  left: -10000px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
 .shell {
   max-width: 1120px;
   margin: 0 auto;

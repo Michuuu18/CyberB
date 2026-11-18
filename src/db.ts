@@ -73,12 +73,33 @@ export function initSchema(): void {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS captcha_challenges (
+      id TEXT PRIMARY KEY,
+      expires_at TEXT NOT NULL,
+      used INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS ip_login_attempts (
+      ip TEXT PRIMARY KEY,
+      fail_count INTEGER NOT NULL DEFAULT 0,
+      locked_until TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS security_alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL,
+      message TEXT NOT NULL,
+      meta_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
-  migrateUsersTotpColumns();
+  migrateUsersColumns();
 }
 
-function migrateUsersTotpColumns(): void {
+function migrateUsersColumns(): void {
   const cols = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
   const names = new Set(cols.map((c) => c.name));
   if (!names.has("totp_secret")) {
@@ -86,6 +107,15 @@ function migrateUsersTotpColumns(): void {
   }
   if (!names.has("totp_enabled")) {
     db.exec("ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!names.has("failed_login_count")) {
+    db.exec("ALTER TABLE users ADD COLUMN failed_login_count INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!names.has("locked_until")) {
+    db.exec("ALTER TABLE users ADD COLUMN locked_until TEXT");
+  }
+  if (!names.has("is_honeytoken")) {
+    db.exec("ALTER TABLE users ADD COLUMN is_honeytoken INTEGER NOT NULL DEFAULT 0");
   }
 }
 
@@ -103,6 +133,9 @@ export type UserRow = {
   otp_expires_at: string | null;
   totp_secret: string | null;
   totp_enabled: number;
+  failed_login_count: number;
+  locked_until: string | null;
+  is_honeytoken: number;
   created_at: string;
 };
 

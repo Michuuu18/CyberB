@@ -1,4 +1,4 @@
-# CyberB – Moduł 1 (wariant 1)
+# CyberB – web application developed as an academic project for a Cybersecurity course
 
 Aplikacja webowa: identyfikacja, uwierzytelnianie i autoryzacja (RBAC) + TOTP (2FA).
 
